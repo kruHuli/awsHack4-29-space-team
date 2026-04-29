@@ -12,6 +12,7 @@ import type {
 } from "@/lib/demo/types";
 
 const MAX_POINTS = 45;
+const TICK_MS = 1000;
 
 const GROUND_STATIONS: GroundStation[] = [
   { id: "gs-hou", name: "Houston GS", lat: 29.6, lon: -95.2 },
@@ -45,6 +46,15 @@ const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(mi
 
 const randomDelta = (spread: number) => (Math.random() - 0.5) * spread;
 
+type TelemetryProfile = {
+  baseTemp: number;
+  basePower: number;
+  radiationBaseline: number;
+  thermalMass: number;
+  powerEfficiency: number;
+  sensorPhase: number;
+};
+
 const normalizeDeg = (deg: number) => {
   const n = deg % 360;
   return n < 0 ? n + 360 : n;
@@ -56,6 +66,73 @@ const angularDistance = (a: number, b: number) => {
 };
 
 const stationLonToAngle = (lon: number) => normalizeDeg(lon + 180);
+
+const SATELLITE_TELEMETRY_PROFILES = SATELLITE_SEEDS.reduce<Record<string, TelemetryProfile>>(
+  (acc, sat, idx) => {
+    acc[sat.id] = {
+      baseTemp: 33 + idx * 1.3,
+      basePower: 3.9 + idx * 0.22,
+      radiationBaseline: 0.02 + idx * 0.006,
+      thermalMass: 0.9 + idx * 0.12,
+      powerEfficiency: 0.94 - idx * 0.025,
+      sensorPhase: idx * 0.85,
+    };
+    return acc;
+  },
+  {},
+);
+
+const buildTelemetryPoint = (
+  now: number,
+  sat: Satellite,
+  previous: TelemetryPoint,
+  profile: TelemetryProfile,
+) => {
+  const timeSec = now / 1000;
+  const orbitalPhase = sat.angleDeg * (Math.PI / 180) + profile.sensorPhase + timeSec * 0.0045;
+  const solarExposure = (Math.sin(orbitalPhase) + 1) / 2;
+  const loadFactor = sat.loadPct / 100;
+  const healthPenalty = sat.health === "critical" ? 5.2 : sat.health === "warning" ? 2.4 : 0;
+  const thermalTarget =
+    profile.baseTemp +
+    loadFactor * 10.5 +
+    (1 - solarExposure) * 2.8 +
+    (sat.contact.inContact ? -1.2 : 0.8) +
+    healthPenalty;
+  const temperatureC = clamp(
+    previous.temperatureC + (thermalTarget - previous.temperatureC) * 0.23 + randomDelta(0.35 * profile.thermalMass),
+    24,
+    98,
+  );
+
+  const powerTarget =
+    profile.basePower +
+    loadFactor * (2.9 - profile.powerEfficiency * 0.4) +
+    Math.max(temperatureC - 50, 0) * 0.025 +
+    (sat.health === "critical" ? 0.5 : 0);
+  const powerKw = clamp(previous.powerKw + (powerTarget - previous.powerKw) * 0.34 + randomDelta(0.08), 2.5, 9.4);
+
+  const radiationCycle = 0.012 * (1 + Math.sin(timeSec / 18 + profile.sensorPhase * 0.6));
+  const seuTarget =
+    profile.radiationBaseline +
+    radiationCycle +
+    Math.max(temperatureC - 58, 0) * 0.0012 +
+    (sat.health === "critical" ? 0.03 : 0);
+  const seuRate = clamp(previous.seuRate + (seuTarget - previous.seuRate) * 0.2 + randomDelta(0.007), 0.008, 0.35);
+
+  const wearRate = Math.max(temperatureC - 60, 0) * 0.004 + seuRate * 1.25;
+  const baseRecovery = sat.health === "nominal" && sat.contact.inContact ? 0.03 : 0.008;
+  const healthTarget = clamp(previous.healthPct - wearRate + baseRecovery + randomDelta(0.06), 38, 100);
+  const healthPct = clamp(previous.healthPct + (healthTarget - previous.healthPct) * 0.28, 38, 100);
+
+  return {
+    t: now,
+    temperatureC,
+    powerKw,
+    healthPct,
+    seuRate,
+  };
+};
 
 const buildContact = (satAngle: number, satSpeed: number) => {
   let nearestId: string | null = null;
@@ -85,13 +162,25 @@ const buildInitialTelemetry = (): Record<string, TelemetryPoint[]> => {
     const points: TelemetryPoint[] = [];
     for (let i = 20; i >= 0; i -= 1) {
       const t = now - i * 1000;
-      points.push({
-        t,
-        temperatureC: 38 + idx * 2 + Math.sin(i / 4) * 2,
-        powerKw: 4.8 + idx * 0.2 + Math.cos(i / 5) * 0.35,
-        healthPct: 97 - idx + Math.sin(i / 6),
-        seuRate: 0.03 + idx * 0.01 + Math.abs(Math.sin(i / 7)) * 0.04,
-      });
+      if (points.length === 0) {
+        points.push({
+          t,
+          temperatureC: 35 + idx * 1.6 + randomDelta(0.8),
+          powerKw: 4.4 + idx * 0.18 + randomDelta(0.2),
+          healthPct: 97 - idx * 0.9 + randomDelta(0.3),
+          seuRate: 0.028 + idx * 0.006 + randomDelta(0.006),
+        });
+        continue;
+      }
+
+      const prev = points[points.length - 1];
+      const syntheticSat: Satellite = {
+        ...sat,
+        loadPct: sat.loadPct + Math.sin(i / 4 + idx * 0.6) * 6,
+        health: "nominal",
+        contact: buildContact(sat.angleDeg + (20 - i) * sat.speedDegPerTick, sat.speedDegPerTick),
+      };
+      points.push(buildTelemetryPoint(t, syntheticSat, prev, SATELLITE_TELEMETRY_PROFILES[sat.id]));
     }
     acc[sat.id] = points;
     return acc;
@@ -178,9 +267,11 @@ export function useDemoState() {
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
+      let nextSatellites: Satellite[] = [];
 
       setSatellites((prev) =>
-        prev.map((sat) => {
+        {
+          nextSatellites = prev.map((sat) => {
           const nextAngle = normalizeDeg(sat.angleDeg + sat.speedDegPerTick);
           const nextLoad = clamp(sat.loadPct + randomDelta(1.8), 20, 96);
           return {
@@ -189,20 +280,32 @@ export function useDemoState() {
             loadPct: nextLoad,
             contact: buildContact(nextAngle, sat.speedDegPerTick),
           };
-        }),
+          });
+          return nextSatellites;
+        },
       );
 
       setTelemetry((prev) => {
         const next: Record<string, TelemetryPoint[]> = {};
+        const satById = nextSatellites.reduce<Record<string, Satellite>>((acc, sat) => {
+          acc[sat.id] = sat;
+          return acc;
+        }, {});
         Object.entries(prev).forEach(([satId, points]) => {
           const last = points[points.length - 1];
-          const newPoint: TelemetryPoint = {
-            t: now,
-            temperatureC: clamp(last.temperatureC + randomDelta(0.7), 21, 95),
-            powerKw: clamp(last.powerKw + randomDelta(0.12), 2.5, 8.6),
-            healthPct: clamp(last.healthPct + randomDelta(0.4), 42, 100),
-            seuRate: clamp(last.seuRate + randomDelta(0.01), 0.01, 0.35),
+          const sat = satById[satId];
+          const profile = SATELLITE_TELEMETRY_PROFILES[satId];
+          const fallbackSat: Satellite = {
+            id: satId,
+            name: satId,
+            orbitRadius: 200,
+            angleDeg: 0,
+            speedDegPerTick: 0.4,
+            loadPct: 50,
+            health: "nominal",
+            contact: { inContact: false, nextContactInSec: 0, stationId: null },
           };
+          const newPoint = buildTelemetryPoint(now, sat ?? fallbackSat, last, profile);
           next[satId] = [...points.slice(-(MAX_POINTS - 1)), newPoint];
         });
         return next;
@@ -211,7 +314,7 @@ export function useDemoState() {
       setReroutes((prev) =>
         prev.filter((event) => now - event.startedAt < event.durationMs),
       );
-    }, 1000);
+    }, TICK_MS);
 
     return () => clearInterval(timer);
   }, []);

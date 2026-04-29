@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { AiOperatorFeed } from "@/components/demo/AiOperatorFeed";
 import { AutonomousAgentOverlay } from "@/components/demo/AutonomousAgentOverlay";
@@ -8,6 +9,7 @@ import { GroundContactBadge } from "@/components/demo/GroundContactBadge";
 import { KnowledgeBaseUpload } from "@/components/demo/KnowledgeBaseUpload";
 import { OrbitalHero } from "@/components/demo/OrbitalHero";
 import { SponsorFooter } from "@/components/demo/SponsorFooter";
+import type { TelemetryPoint } from "@/lib/demo/types";
 import { useDemoState } from "@/lib/demo/useDemoState";
 
 const TelemetryPanel = dynamic(
@@ -42,6 +44,43 @@ export default function Home() {
     setIsWorkbookLoaded,
     agentTask,
   } = useDemoState();
+  const faultActive = activeSatellite.health === "critical";
+  const dataCenterTelemetry = useMemo(() => {
+    const streams = Object.values(telemetry);
+    if (streams.length === 0) return [];
+
+    const maxLen = Math.max(...streams.map((series) => series.length));
+    const aggregated: TelemetryPoint[] = [];
+
+    for (let i = 0; i < maxLen; i += 1) {
+      const pointsAtIndex = streams
+        .map((series) => series[i])
+        .filter((point): point is TelemetryPoint => Boolean(point));
+      if (pointsAtIndex.length === 0) continue;
+
+      const count = pointsAtIndex.length;
+      const summed = pointsAtIndex.reduce(
+        (acc, point) => {
+          acc.temperatureC += point.temperatureC;
+          acc.powerKw += point.powerKw;
+          acc.healthPct += point.healthPct;
+          acc.seuRate += point.seuRate;
+          return acc;
+        },
+        { temperatureC: 0, powerKw: 0, healthPct: 0, seuRate: 0 },
+      );
+
+      aggregated.push({
+        t: pointsAtIndex[0].t,
+        temperatureC: summed.temperatureC / count,
+        powerKw: summed.powerKw / count,
+        healthPct: summed.healthPct / count,
+        seuRate: summed.seuRate / count,
+      });
+    }
+
+    return aggregated;
+  }, [telemetry]);
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-6 text-slate-100 md:px-10">
@@ -93,9 +132,16 @@ export default function Home() {
 
         <section className="mt-4 rounded-2xl border border-slate-700/80 bg-slate-900/60 p-4">
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-slate-200">
-            Live Telemetry - {activeSatellite.name}
+            Data Center Telemetry + Active Satellite Topology ({activeSatellite.name})
           </h3>
-          <TelemetryPanel telemetry={telemetry[activeSatellite.id] ?? []} />
+          <TelemetryPanel
+            dataCenterTelemetry={dataCenterTelemetry}
+            activeSatelliteName={activeSatellite.name}
+            activeSatelliteLoadPct={activeSatellite.loadPct}
+            activeSatelliteHealth={activeSatellite.health}
+            activeSatelliteTelemetry={telemetry[activeSatellite.id] ?? []}
+            faultActive={faultActive}
+          />
         </section>
 
         <SponsorFooter isProcessing={isProcessing} />
