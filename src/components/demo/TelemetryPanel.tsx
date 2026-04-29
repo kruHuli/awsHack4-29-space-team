@@ -1,21 +1,46 @@
 "use client";
 
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { memo, useMemo } from "react";
 import type { TelemetryPoint } from "@/lib/demo/types";
 
 type Props = {
   telemetry: TelemetryPoint[];
 };
 
-function TinyChart({
+type TelemetryMetric = Exclude<keyof TelemetryPoint, "t">;
+
+const chartWidth = 320;
+const chartHeight = 96;
+
+const buildChartPath = (data: TelemetryPoint[], dataKey: TelemetryMetric) => {
+  const values = data.map((point) => Number(point[dataKey]));
+  const min = values.length > 0 ? Math.min(...values) : 0;
+  const max = values.length > 0 ? Math.max(...values) : 0;
+  const range = Math.max(max - min, 0.001);
+  const lastIndex = Math.max(data.length - 1, 1);
+
+  const points = values.map((value, index) => {
+    const x = (index / lastIndex) * chartWidth;
+    const y = chartHeight - ((value - min) / range) * chartHeight;
+    return { x, y };
+  });
+
+  if (points.length === 0) {
+    return { areaPath: "", linePath: "", min, max };
+  }
+
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(" ");
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const areaPath = `${linePath} L ${last.x.toFixed(2)} ${chartHeight} L ${first.x.toFixed(2)} ${chartHeight} Z`;
+
+  return { areaPath, linePath, min, max };
+};
+
+const TinyChart = memo(function TinyChart({
   title,
   color,
   dataKey,
@@ -23,13 +48,14 @@ function TinyChart({
 }: {
   title: string;
   color: string;
-  dataKey: keyof TelemetryPoint;
+  dataKey: TelemetryMetric;
   data: TelemetryPoint[];
 }) {
   const currentVal = data.length > 0 ? Number(data[data.length - 1][dataKey]) : 0;
-  const values = data.map((d) => Number(d[dataKey]));
-  const minVal = values.length > 0 ? Math.min(...values) : 0;
-  const maxVal = values.length > 0 ? Math.max(...values) : 0;
+  const { areaPath, linePath, min, max } = useMemo(
+    () => buildChartPath(data, dataKey),
+    [data, dataKey],
+  );
 
   return (
     <div className="relative rounded-xl border border-slate-700/50 bg-slate-900/40 p-4 backdrop-blur-md shadow-[inset_0_0_20px_rgba(15,23,42,0.8)]">
@@ -43,8 +69,8 @@ function TinyChart({
               {currentVal.toFixed(2)}
             </span>
             <div className="flex flex-col text-[10px] text-slate-500 font-mono leading-tight">
-              <span>MAX {maxVal.toFixed(2)}</span>
-              <span>MIN {minVal.toFixed(2)}</span>
+              <span>MAX {max.toFixed(2)}</span>
+              <span>MIN {min.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -54,46 +80,47 @@ function TinyChart({
       </div>
       
       <div className="h-24 w-full min-w-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={96}>
-          <AreaChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id={`gradient-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={color} stopOpacity={0.4} />
-                <stop offset="95%" stopColor={color} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.15)" vertical={false} />
-            <XAxis dataKey="t" hide />
-            <YAxis hide domain={["dataMin - 1", "dataMax + 1"]} />
-            <Tooltip
-              formatter={(value) =>
-                typeof value === "number" ? value.toFixed(2) : String(value ?? "")
-              }
-              labelFormatter={() => "Live"}
-              contentStyle={{
-                background: "rgba(2, 6, 23, 0.8)",
-                backdropFilter: "blur(8px)",
-                border: "1px solid rgba(100, 116, 139, 0.45)",
-                borderRadius: "8px",
-                fontFamily: "var(--font-geist-mono)",
-                fontSize: "12px"
-              }}
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          className="h-full w-full overflow-visible"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`${title} telemetry chart`}
+        >
+          <defs>
+            <linearGradient id={`gradient-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.4} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          {[24, 48, 72].map((y) => (
+            <line
+              key={y}
+              x1="0"
+              x2={chartWidth}
+              y1={y}
+              y2={y}
+              stroke="rgba(100,116,139,0.15)"
+              strokeDasharray="3 3"
             />
-            <Area
-              type="monotone"
-              dataKey={dataKey}
+          ))}
+          {areaPath && <path d={areaPath} fill={`url(#gradient-${dataKey})`} />}
+          {linePath && (
+            <path
+              d={linePath}
+              fill="none"
               stroke={color}
-              strokeWidth={2}
-              fillOpacity={1}
-              fill={`url(#gradient-${dataKey})`}
-              isAnimationActive={false}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
             />
-          </AreaChart>
-        </ResponsiveContainer>
+          )}
+        </svg>
       </div>
     </div>
   );
-}
+});
 
 export function TelemetryPanel({ telemetry }: Props) {
   return (
