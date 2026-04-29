@@ -59,3 +59,17 @@ export interface RerouteEvent {
   startedAt: number;
   durationMs: number;
 }
+
+export interface AgentTaskStep {
+  id: string;
+  text: string;
+  status: "pending" | "running" | "success";
+}
+
+export interface AgentTask {
+  id: string;
+  satelliteId: string;
+  faultType: FaultType;
+  steps: AgentTaskStep[];
+  status: "running" | "completed";
+}

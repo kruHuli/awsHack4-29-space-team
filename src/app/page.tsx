@@ -2,8 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { AiOperatorFeed } from "@/components/demo/AiOperatorFeed";
+import { AutonomousAgentOverlay } from "@/components/demo/AutonomousAgentOverlay";
 import { FaultInjectionPanel } from "@/components/demo/FaultInjectionPanel";
 import { GroundContactBadge } from "@/components/demo/GroundContactBadge";
+import { KnowledgeBaseUpload } from "@/components/demo/KnowledgeBaseUpload";
 import { OrbitalHero } from "@/components/demo/OrbitalHero";
 import { SponsorFooter } from "@/components/demo/SponsorFooter";
 import { useDemoState } from "@/lib/demo/useDemoState";
@@ -36,10 +38,14 @@ export default function Home() {
     isProcessing,
     faultTypes,
     injectFault,
+    isWorkbookLoaded,
+    setIsWorkbookLoaded,
+    agentTask,
   } = useDemoState();
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-6 text-slate-100 md:px-10">
+      <AutonomousAgentOverlay task={agentTask} />
       <div className="mx-auto max-w-[1400px]">
         <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -68,6 +74,11 @@ export default function Home() {
                 Health: <span className="font-semibold uppercase text-slate-100">{activeSatellite.health}</span>
               </p>
             </div>
+
+            <KnowledgeBaseUpload
+              isLoaded={isWorkbookLoaded}
+              onLoad={() => setIsWorkbookLoaded(true)}
+            />
 
             <FaultInjectionPanel
               faultTypes={faultTypes}

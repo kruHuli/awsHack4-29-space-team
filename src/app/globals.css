@@ -24,3 +24,17 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+@keyframes orbit-dash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+.animate-orbit-dash-slow {
+  animation: orbit-dash 1s linear infinite;
+}
+
+.animate-orbit-dash-fast {
+  animation: orbit-dash 0.5s linear infinite;
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
+  AgentTask,
   AiMessage,
   FaultType,
   GroundStation,
@@ -127,6 +128,52 @@ export function useDemoState() {
   ]);
   const [reroutes, setReroutes] = useState<RerouteEvent[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isWorkbookLoaded, setIsWorkbookLoaded] = useState(false);
+  const [agentTask, setAgentTask] = useState<AgentTask | null>(null);
+
+  useEffect(() => {
+    if (!agentTask) return;
+
+    if (agentTask.status === "completed") {
+      const timer = setTimeout(() => {
+        setAgentTask(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+
+    const timer = setTimeout(() => {
+      setAgentTask((prev) => {
+        if (!prev) return null;
+        const nextSteps = [...prev.steps];
+        const runningIdx = nextSteps.findIndex((s) => s.status === "running");
+
+        if (runningIdx === -1) {
+          const firstPending = nextSteps.findIndex((s) => s.status === "pending");
+          if (firstPending !== -1) {
+            nextSteps[firstPending].status = "running";
+            return { ...prev, steps: nextSteps };
+          } else {
+            // All steps completed
+            // Resolve the fault
+            setSatellites((sats) =>
+              sats.map((item) =>
+                item.id === prev.satelliteId
+                  ? { ...item, health: "nominal", loadPct: clamp(item.loadPct - 30, 10, 95) }
+                  : item
+              ),
+            );
+            return { ...prev, status: "completed" };
+          }
+        } else {
+          // Complete the running step
+          nextSteps[runningIdx].status = "success";
+          return { ...prev, steps: nextSteps };
+        }
+      });
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [agentTask]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -194,43 +241,57 @@ export function useDemoState() {
 
     addMessage("incident", satelliteId, `${FAULT_LABELS[fault]} detected on ${sat.name}.`);
 
-    setTimeout(() => {
-      setSatellites((prev) =>
-        prev.map((item) =>
-          item.id === satelliteId
-            ? {
-                ...item,
-                health: "critical",
-                loadPct: clamp(item.loadPct + 20, 20, 99),
-              }
-            : {
-                ...item,
-                health: "nominal",
-                loadPct: clamp(item.loadPct - 5, 10, 95),
-              },
-        ),
-      );
+    setSatellites((prev) =>
+      prev.map((item) =>
+        item.id === satelliteId
+          ? {
+              ...item,
+              health: "critical",
+              loadPct: clamp(item.loadPct + 20, 20, 99),
+            }
+          : item
+      ),
+    );
 
-      const healthyTargets = satellites
-        .filter((item) => item.id !== satelliteId)
-        .slice(0, 3)
-        .map((item) => item.id);
-
-      setReroutes((prev) => [
-        ...prev,
-        {
+    if (isWorkbookLoaded) {
+      setTimeout(() => {
+        setAgentTask({
           id: crypto.randomUUID(),
-          fromSatelliteId: satelliteId,
-          toSatelliteIds: healthyTargets,
-          startedAt: Date.now(),
-          durationMs: 4200,
-        },
-      ]);
+          satelliteId,
+          faultType: fault,
+          status: "running",
+          steps: [
+            { id: "s1", text: "Scanning ingested Operations Manual...", status: "running" },
+            { id: "s2", text: `Cross-referencing anomaly signature with Protocol ${Math.floor(Math.random() * 90) + 10}A...`, status: "pending" },
+            { id: "s3", text: "Rerouting non-essential workloads to resilient peers...", status: "pending" },
+            { id: "s4", text: "Rebooting affected subsystem and stabilizing...", status: "pending" },
+          ],
+        });
+        setIsProcessing(false);
+      }, 1000);
+    } else {
+      setTimeout(() => {
+        const healthyTargets = satellites
+          .filter((item) => item.id !== satelliteId)
+          .slice(0, 3)
+          .map((item) => item.id);
 
-      addMessage("action", satelliteId, "Autonomous workload reroute initiated to resilient peers.");
-      addMessage("recommendation", satelliteId, "Schedule thermal and radiation diagnostics window.");
-      setIsProcessing(false);
-    }, 1400);
+        setReroutes((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            fromSatelliteId: satelliteId,
+            toSatelliteIds: healthyTargets,
+            startedAt: Date.now(),
+            durationMs: 4200,
+          },
+        ]);
+
+        addMessage("action", satelliteId, "Autonomous workload reroute initiated to resilient peers.");
+        addMessage("recommendation", satelliteId, "Schedule thermal and radiation diagnostics window.");
+        setIsProcessing(false);
+      }, 1400);
+    }
   };
 
   return {
@@ -245,5 +306,9 @@ export function useDemoState() {
     isProcessing,
     faultTypes,
     injectFault,
+    isWorkbookLoaded,
+    setIsWorkbookLoaded,
+    agentTask,
+    setAgentTask,
   };
 }
