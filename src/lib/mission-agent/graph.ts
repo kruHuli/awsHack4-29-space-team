@@ -166,7 +166,6 @@ export async function runMissionAgent({
   const tools = [readMissionSnapshot, readOperationsPlaybook, issueMitigationAction];
   const model = new ChatOpenAI({
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-    temperature: 0.1,
   }).bindTools(tools);
 
   const callModel = async (state: typeof MessagesAnnotation.State) => ({
