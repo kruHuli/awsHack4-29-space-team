@@ -52,6 +52,32 @@ export interface AiMessage {
   text: string;
 }
 
+export interface MissionChatMessage {
+  id: string;
+  ts: string;
+  role: "assistant" | "user";
+  text: string;
+}
+
+export interface MissionAgentAction {
+  type: "monitor" | "reroute" | "stabilize";
+  satelliteId: string;
+  rationale: string;
+  targetSatelliteIds?: string[];
+}
+
+export interface MissionAgentContext {
+  activeSatelliteId: string;
+  satellites: Satellite[];
+  telemetry: Record<string, TelemetryPoint[]>;
+  operatorMessages: AiMessage[];
+  isWorkbookLoaded: boolean;
+  lastInjectedFault?: {
+    faultType: FaultType;
+    satelliteId: string;
+  };
+}
+
 export interface RerouteEvent {
   id: string;
   fromSatelliteId: string;

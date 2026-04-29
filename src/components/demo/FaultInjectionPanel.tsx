@@ -14,6 +14,7 @@ type Props = {
   faultTypes: FaultType[];
   satellites: Satellite[];
   activeSatelliteId: string;
+  onSelectSatellite: (id: string) => void;
   onInject: (faultType: FaultType, satelliteId: string) => void;
 };
 
@@ -21,10 +22,10 @@ export function FaultInjectionPanel({
   faultTypes,
   satellites,
   activeSatelliteId,
+  onSelectSatellite,
   onInject,
 }: Props) {
   const [faultType, setFaultType] = useState<FaultType>(faultTypes[0]);
-  const [targetId, setTargetId] = useState<string>(activeSatelliteId);
 
   return (
     <section className="rounded-2xl border border-amber-300/20 bg-slate-900/70 p-4">
@@ -45,8 +46,8 @@ export function FaultInjectionPanel({
         </select>
 
         <select
-          value={targetId}
-          onChange={(e) => setTargetId(e.target.value)}
+          value={activeSatelliteId}
+          onChange={(e) => onSelectSatellite(e.target.value)}
           className="rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-slate-200"
         >
           {satellites.map((sat) => (
@@ -57,7 +58,7 @@ export function FaultInjectionPanel({
         </select>
 
         <button
-          onClick={() => onInject(faultType, targetId)}
+          onClick={() => onInject(faultType, activeSatelliteId)}
           className="rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
         >
           Inject Fault

@@ -6,6 +6,9 @@ import type {
   AiMessage,
   FaultType,
   GroundStation,
+  MissionAgentAction,
+  MissionAgentContext,
+  MissionChatMessage,
   RerouteEvent,
   Satellite,
   TelemetryPoint,
@@ -195,6 +198,17 @@ const asTime = (ms: number) =>
     hour12: false,
   }).format(ms);
 
+const chooseHealthyTargets = (satellites: Satellite[], satelliteId: string) =>
+  satellites
+    .filter((item) => item.id !== satelliteId && item.health !== "critical")
+    .slice(0, 3)
+    .map((item) => item.id);
+
+type MissionAgentApiResponse = {
+  message: string;
+  actions?: MissionAgentAction[];
+};
+
 export function useDemoState() {
   const [satellites, setSatellites] = useState<Satellite[]>(
     SATELLITE_SEEDS.map((sat) => ({
@@ -219,6 +233,15 @@ export function useDemoState() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isWorkbookLoaded, setIsWorkbookLoaded] = useState(false);
   const [agentTask, setAgentTask] = useState<AgentTask | null>(null);
+  const [assistantMessages, setAssistantMessages] = useState<MissionChatMessage[]>([
+    {
+      id: "assistant-boot",
+      ts: "00:00:00",
+      role: "assistant",
+      text: "Mission Atonomou Agent online. Ask me to analyze telemetry, reroute load, or stabilize the selected satellite.",
+    },
+  ]);
+  const [isAssistantThinking, setIsAssistantThinking] = useState(false);
 
   useEffect(() => {
     if (!agentTask) return;
@@ -337,64 +360,211 @@ export function useDemoState() {
     ]);
   };
 
+  const addAssistantMessage = (role: MissionChatMessage["role"], text: string) => {
+    setAssistantMessages((prev) => [
+      ...prev.slice(-40),
+      {
+        id: crypto.randomUUID(),
+        ts: asTime(Date.now()),
+        role,
+        text,
+      },
+    ]);
+  };
+
+  const buildMissionContext = (
+    activeId = activeSatelliteId,
+    satelliteSnapshot = satellites,
+    telemetrySnapshot = telemetry,
+    lastInjectedFault?: MissionAgentContext["lastInjectedFault"],
+  ): MissionAgentContext => ({
+    activeSatelliteId: activeId,
+    satellites: satelliteSnapshot,
+    telemetry: telemetrySnapshot,
+    operatorMessages: messages,
+    isWorkbookLoaded,
+    lastInjectedFault,
+  });
+
+  const applyAgentAction = (action: MissionAgentAction) => {
+    const sat = satellites.find((item) => item.id === action.satelliteId);
+    if (!sat) return;
+
+    if (action.type === "monitor") {
+      addMessage("observation", action.satelliteId, `Agent assessment for ${sat.name}: ${action.rationale}`);
+      return;
+    }
+
+    if (action.type === "reroute") {
+      const healthyTargets =
+        action.targetSatelliteIds?.length
+          ? action.targetSatelliteIds
+          : chooseHealthyTargets(satellites, action.satelliteId);
+      setReroutes((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          fromSatelliteId: action.satelliteId,
+          toSatelliteIds: healthyTargets,
+          startedAt: Date.now(),
+          durationMs: 5200,
+        },
+      ]);
+      setSatellites((prev) =>
+        prev.map((item) =>
+          item.id === action.satelliteId
+            ? { ...item, health: "warning", loadPct: clamp(item.loadPct - 18, 10, 95) }
+            : item.id && healthyTargets.includes(item.id)
+              ? { ...item, loadPct: clamp(item.loadPct + 6, 10, 96) }
+              : item,
+        ),
+      );
+      addMessage("action", action.satelliteId, `Agent rerouted non-essential workloads from ${sat.name}.`);
+      return;
+    }
+
+    setSatellites((prev) =>
+      prev.map((item) =>
+        item.id === action.satelliteId
+          ? { ...item, health: "nominal", loadPct: clamp(item.loadPct - 26, 10, 95) }
+          : item,
+      ),
+    );
+    setTelemetry((prev) => {
+      const points = prev[action.satelliteId] ?? [];
+      const last = points[points.length - 1];
+      if (!last) return prev;
+
+      return {
+        ...prev,
+        [action.satelliteId]: [
+          ...points.slice(-(MAX_POINTS - 1)),
+          {
+            t: Date.now(),
+            temperatureC: clamp(last.temperatureC - 8, 21, 95),
+            powerKw: clamp(last.powerKw - 0.45, 2.5, 8.6),
+            healthPct: clamp(last.healthPct + 9, 42, 100),
+            seuRate: clamp(last.seuRate - 0.05, 0.01, 0.35),
+          },
+        ],
+      };
+    });
+    addMessage("action", action.satelliteId, `Agent stabilized ${sat.name}: ${action.rationale}`);
+  };
+
+  const runMissionAgent = async (
+    prompt: string,
+    options?: {
+      activeId?: string;
+      satelliteSnapshot?: Satellite[];
+      lastInjectedFault?: MissionAgentContext["lastInjectedFault"];
+      showUserMessage?: boolean;
+    },
+  ) => {
+    const trimmed = prompt.trim();
+    if (!trimmed || isAssistantThinking) return;
+
+    const userMessage: MissionChatMessage = {
+      id: crypto.randomUUID(),
+      ts: asTime(Date.now()),
+      role: "user",
+      text: trimmed,
+    };
+
+    if (options?.showUserMessage !== false) {
+      setAssistantMessages((prev) => [...prev.slice(-40), userMessage]);
+    }
+
+    setIsAssistantThinking(true);
+
+    try {
+      const response = await fetch("/api/mission-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: trimmed,
+          messages: [...assistantMessages.slice(-12), userMessage],
+          context: buildMissionContext(
+            options?.activeId,
+            options?.satelliteSnapshot,
+            telemetry,
+            options?.lastInjectedFault,
+          ),
+        }),
+      });
+
+      const payload = (await response.json()) as MissionAgentApiResponse | { error?: string };
+
+      if (!response.ok) {
+        throw new Error("error" in payload && payload.error ? payload.error : "Mission agent request failed.");
+      }
+
+      const agentPayload = payload as MissionAgentApiResponse;
+      addAssistantMessage("assistant", agentPayload.message);
+      agentPayload.actions?.forEach((action: MissionAgentAction) => applyAgentAction(action));
+    } catch (error) {
+      addAssistantMessage(
+        "assistant",
+        error instanceof Error
+          ? `LangGraph agent unavailable: ${error.message}`
+          : "LangGraph agent unavailable: unknown error.",
+      );
+    } finally {
+      setIsAssistantThinking(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const askAssistant = (prompt: string) => {
+    void runMissionAgent(prompt);
+  };
+
   const injectFault = (fault: FaultType, satelliteId: string) => {
     setIsProcessing(true);
     const sat = satellites.find((s) => s.id === satelliteId);
     if (!sat) return;
 
     addMessage("incident", satelliteId, `${FAULT_LABELS[fault]} detected on ${sat.name}.`);
+    addAssistantMessage(
+      "assistant",
+      `Fault event received for ${sat.name}: ${FAULT_LABELS[fault]}. I am checking live telemetry and selecting a mitigation path.`,
+    );
 
-    setSatellites((prev) =>
-      prev.map((item) =>
+    const nextSatellites: Satellite[] = satellites.map((item) =>
         item.id === satelliteId
           ? {
               ...item,
-              health: "critical",
+              health: "critical" as const,
               loadPct: clamp(item.loadPct + 20, 20, 99),
             }
           : item
-      ),
-    );
+      );
+    setSatellites(nextSatellites);
 
     if (isWorkbookLoaded) {
-      setTimeout(() => {
-        setAgentTask({
-          id: crypto.randomUUID(),
-          satelliteId,
-          faultType: fault,
-          status: "running",
-          steps: [
-            { id: "s1", text: "Scanning ingested Operations Manual...", status: "running" },
-            { id: "s2", text: `Cross-referencing anomaly signature with Protocol ${Math.floor(Math.random() * 90) + 10}A...`, status: "pending" },
-            { id: "s3", text: "Rerouting non-essential workloads to resilient peers...", status: "pending" },
-            { id: "s4", text: "Rebooting affected subsystem and stabilizing...", status: "pending" },
-          ],
-        });
-        setIsProcessing(false);
-      }, 1000);
-    } else {
-      setTimeout(() => {
-        const healthyTargets = satellites
-          .filter((item) => item.id !== satelliteId)
-          .slice(0, 3)
-          .map((item) => item.id);
-
-        setReroutes((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            fromSatelliteId: satelliteId,
-            toSatelliteIds: healthyTargets,
-            startedAt: Date.now(),
-            durationMs: 4200,
-          },
-        ]);
-
-        addMessage("action", satelliteId, "Autonomous workload reroute initiated to resilient peers.");
-        addMessage("recommendation", satelliteId, "Schedule thermal and radiation diagnostics window.");
-        setIsProcessing(false);
-      }, 1400);
+      setAgentTask({
+        id: crypto.randomUUID(),
+        satelliteId,
+        faultType: fault,
+        status: "running",
+        steps: [
+          { id: "s1", text: "Scanning ingested Operations Manual...", status: "running" },
+          { id: "s2", text: `Cross-referencing anomaly signature with Protocol ${Math.floor(Math.random() * 90) + 10}A...`, status: "pending" },
+          { id: "s3", text: "Rerouting non-essential workloads to resilient peers...", status: "pending" },
+          { id: "s4", text: "Rebooting affected subsystem and stabilizing...", status: "pending" },
+        ],
+      });
     }
+
+    void runMissionAgent(
+      `${FAULT_LABELS[fault]} was injected on ${sat.name}. Inspect all telemetry and playbook protocols, then choose and execute the best mitigation.`,
+      {
+        activeId: satelliteId,
+        satelliteSnapshot: nextSatellites,
+        lastInjectedFault: { faultType: fault, satelliteId },
+        showUserMessage: false,
+      },
+    );
   };
 
   return {
@@ -413,5 +583,8 @@ export function useDemoState() {
     setIsWorkbookLoaded,
     agentTask,
     setAgentTask,
+    assistantMessages,
+    isAssistantThinking,
+    askAssistant,
   };
 }

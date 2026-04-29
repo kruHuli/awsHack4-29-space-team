@@ -7,6 +7,7 @@ import { AutonomousAgentOverlay } from "@/components/demo/AutonomousAgentOverlay
 import { FaultInjectionPanel } from "@/components/demo/FaultInjectionPanel";
 import { GroundContactBadge } from "@/components/demo/GroundContactBadge";
 import { KnowledgeBaseUpload } from "@/components/demo/KnowledgeBaseUpload";
+import { MissionLlmChat } from "@/components/demo/MissionLlmChat";
 import { OrbitalHero } from "@/components/demo/OrbitalHero";
 import { SponsorFooter } from "@/components/demo/SponsorFooter";
 import type { TelemetryPoint } from "@/lib/demo/types";
@@ -43,6 +44,9 @@ export default function Home() {
     isWorkbookLoaded,
     setIsWorkbookLoaded,
     agentTask,
+    assistantMessages,
+    isAssistantThinking,
+    askAssistant,
   } = useDemoState();
   const faultActive = activeSatellite.health === "critical";
   const dataCenterTelemetry = useMemo(() => {
@@ -95,13 +99,23 @@ export default function Home() {
         </header>
 
         <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.45fr_1fr]">
-          <OrbitalHero
-            satellites={satellites}
-            groundStations={groundStations}
-            activeSatelliteId={activeSatelliteId}
-            onSelectSatellite={setActiveSatelliteId}
-            reroutes={reroutes}
-          />
+          <div className="space-y-4">
+            <OrbitalHero
+              satellites={satellites}
+              groundStations={groundStations}
+              activeSatelliteId={activeSatelliteId}
+              onSelectSatellite={setActiveSatelliteId}
+              reroutes={reroutes}
+            />
+
+            <MissionLlmChat
+              activeSatellite={activeSatellite}
+              telemetry={telemetry[activeSatellite.id] ?? []}
+              messages={assistantMessages}
+              isThinking={isAssistantThinking}
+              onAsk={askAssistant}
+            />
+          </div>
 
           <aside className="space-y-4">
             <div className="rounded-2xl border border-slate-700/80 bg-slate-900/70 p-4">
@@ -123,6 +137,7 @@ export default function Home() {
               faultTypes={faultTypes}
               satellites={satellites}
               activeSatelliteId={activeSatelliteId}
+              onSelectSatellite={setActiveSatelliteId}
               onInject={injectFault}
             />
 
