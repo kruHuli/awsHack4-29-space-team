@@ -24,11 +24,51 @@ const GROUND_STATIONS: GroundStation[] = [
 ];
 
 const SATELLITE_SEEDS: Omit<Satellite, "contact">[] = [
-  { id: "sat-01", name: "Aster-1", orbitRadius: 176, angleDeg: 20, speedDegPerTick: 0.55, loadPct: 58, health: "nominal" },
-  { id: "sat-02", name: "Aster-2", orbitRadius: 210, angleDeg: 100, speedDegPerTick: 0.42, loadPct: 41, health: "nominal" },
-  { id: "sat-03", name: "Aster-3", orbitRadius: 236, angleDeg: 182, speedDegPerTick: 0.35, loadPct: 64, health: "nominal" },
-  { id: "sat-04", name: "Aster-4", orbitRadius: 192, angleDeg: 260, speedDegPerTick: 0.46, loadPct: 33, health: "nominal" },
-  { id: "sat-05", name: "Aster-5", orbitRadius: 222, angleDeg: 320, speedDegPerTick: 0.4, loadPct: 49, health: "nominal" },
+  {
+    id: "sat-01",
+    name: "Aster-1",
+    orbitRadius: 176,
+    angleDeg: 20,
+    speedDegPerTick: 0.55,
+    loadPct: 58,
+    health: "nominal",
+  },
+  {
+    id: "sat-02",
+    name: "Aster-2",
+    orbitRadius: 210,
+    angleDeg: 100,
+    speedDegPerTick: 0.42,
+    loadPct: 41,
+    health: "nominal",
+  },
+  {
+    id: "sat-03",
+    name: "Aster-3",
+    orbitRadius: 236,
+    angleDeg: 182,
+    speedDegPerTick: 0.35,
+    loadPct: 64,
+    health: "nominal",
+  },
+  {
+    id: "sat-04",
+    name: "Aster-4",
+    orbitRadius: 192,
+    angleDeg: 260,
+    speedDegPerTick: 0.46,
+    loadPct: 33,
+    health: "nominal",
+  },
+  {
+    id: "sat-05",
+    name: "Aster-5",
+    orbitRadius: 222,
+    angleDeg: 320,
+    speedDegPerTick: 0.4,
+    loadPct: 49,
+    health: "nominal",
+  },
 ];
 
 const FAULT_LABELS: Record<FaultType, string> = {
@@ -45,7 +85,8 @@ const faultTypes: FaultType[] = [
   "solar_flare",
 ];
 
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+const clamp = (v: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, v));
 
 const randomDelta = (spread: number) => (Math.random() - 0.5) * spread;
 
@@ -70,20 +111,19 @@ const angularDistance = (a: number, b: number) => {
 
 const stationLonToAngle = (lon: number) => normalizeDeg(lon + 180);
 
-const SATELLITE_TELEMETRY_PROFILES = SATELLITE_SEEDS.reduce<Record<string, TelemetryProfile>>(
-  (acc, sat, idx) => {
-    acc[sat.id] = {
-      baseTemp: 33 + idx * 1.3,
-      basePower: 3.9 + idx * 0.22,
-      radiationBaseline: 0.02 + idx * 0.006,
-      thermalMass: 0.9 + idx * 0.12,
-      powerEfficiency: 0.94 - idx * 0.025,
-      sensorPhase: idx * 0.85,
-    };
-    return acc;
-  },
-  {},
-);
+const SATELLITE_TELEMETRY_PROFILES = SATELLITE_SEEDS.reduce<
+  Record<string, TelemetryProfile>
+>((acc, sat, idx) => {
+  acc[sat.id] = {
+    baseTemp: 33 + idx * 1.3,
+    basePower: 3.9 + idx * 0.22,
+    radiationBaseline: 0.02 + idx * 0.006,
+    thermalMass: 0.9 + idx * 0.12,
+    powerEfficiency: 0.94 - idx * 0.025,
+    sensorPhase: idx * 0.85,
+  };
+  return acc;
+}, {});
 
 const buildTelemetryPoint = (
   now: number,
@@ -92,10 +132,12 @@ const buildTelemetryPoint = (
   profile: TelemetryProfile,
 ) => {
   const timeSec = now / 1000;
-  const orbitalPhase = sat.angleDeg * (Math.PI / 180) + profile.sensorPhase + timeSec * 0.0045;
+  const orbitalPhase =
+    sat.angleDeg * (Math.PI / 180) + profile.sensorPhase + timeSec * 0.0045;
   const solarExposure = (Math.sin(orbitalPhase) + 1) / 2;
   const loadFactor = sat.loadPct / 100;
-  const healthPenalty = sat.health === "critical" ? 5.2 : sat.health === "warning" ? 2.4 : 0;
+  const healthPenalty =
+    sat.health === "critical" ? 5.2 : sat.health === "warning" ? 2.4 : 0;
   const thermalTarget =
     profile.baseTemp +
     loadFactor * 10.5 +
@@ -103,7 +145,9 @@ const buildTelemetryPoint = (
     (sat.contact.inContact ? -1.2 : 0.8) +
     healthPenalty;
   const temperatureC = clamp(
-    previous.temperatureC + (thermalTarget - previous.temperatureC) * 0.23 + randomDelta(0.35 * profile.thermalMass),
+    previous.temperatureC +
+      (thermalTarget - previous.temperatureC) * 0.23 +
+      randomDelta(0.35 * profile.thermalMass),
     24,
     98,
   );
@@ -113,20 +157,42 @@ const buildTelemetryPoint = (
     loadFactor * (2.9 - profile.powerEfficiency * 0.4) +
     Math.max(temperatureC - 50, 0) * 0.025 +
     (sat.health === "critical" ? 0.5 : 0);
-  const powerKw = clamp(previous.powerKw + (powerTarget - previous.powerKw) * 0.34 + randomDelta(0.08), 2.5, 9.4);
+  const powerKw = clamp(
+    previous.powerKw +
+      (powerTarget - previous.powerKw) * 0.34 +
+      randomDelta(0.08),
+    2.5,
+    9.4,
+  );
 
-  const radiationCycle = 0.012 * (1 + Math.sin(timeSec / 18 + profile.sensorPhase * 0.6));
+  const radiationCycle =
+    0.012 * (1 + Math.sin(timeSec / 18 + profile.sensorPhase * 0.6));
   const seuTarget =
     profile.radiationBaseline +
     radiationCycle +
     Math.max(temperatureC - 58, 0) * 0.0012 +
     (sat.health === "critical" ? 0.03 : 0);
-  const seuRate = clamp(previous.seuRate + (seuTarget - previous.seuRate) * 0.2 + randomDelta(0.007), 0.008, 0.35);
+  const seuRate = clamp(
+    previous.seuRate +
+      (seuTarget - previous.seuRate) * 0.2 +
+      randomDelta(0.007),
+    0.008,
+    0.35,
+  );
 
   const wearRate = Math.max(temperatureC - 60, 0) * 0.004 + seuRate * 1.25;
-  const baseRecovery = sat.health === "nominal" && sat.contact.inContact ? 0.03 : 0.008;
-  const healthTarget = clamp(previous.healthPct - wearRate + baseRecovery + randomDelta(0.06), 38, 100);
-  const healthPct = clamp(previous.healthPct + (healthTarget - previous.healthPct) * 0.28, 38, 100);
+  const baseRecovery =
+    sat.health === "nominal" && sat.contact.inContact ? 0.03 : 0.008;
+  const healthTarget = clamp(
+    previous.healthPct - wearRate + baseRecovery + randomDelta(0.06),
+    38,
+    100,
+  );
+  const healthPct = clamp(
+    previous.healthPct + (healthTarget - previous.healthPct) * 0.28,
+    38,
+    100,
+  );
 
   return {
     t: now,
@@ -161,33 +227,46 @@ const buildContact = (satAngle: number, satSpeed: number) => {
 
 const buildInitialTelemetry = (): Record<string, TelemetryPoint[]> => {
   const now = Date.now();
-  return SATELLITE_SEEDS.reduce<Record<string, TelemetryPoint[]>>((acc, sat, idx) => {
-    const points: TelemetryPoint[] = [];
-    for (let i = 20; i >= 0; i -= 1) {
-      const t = now - i * 1000;
-      if (points.length === 0) {
-        points.push({
-          t,
-          temperatureC: 35 + idx * 1.6 + randomDelta(0.8),
-          powerKw: 4.4 + idx * 0.18 + randomDelta(0.2),
-          healthPct: 97 - idx * 0.9 + randomDelta(0.3),
-          seuRate: 0.028 + idx * 0.006 + randomDelta(0.006),
-        });
-        continue;
-      }
+  return SATELLITE_SEEDS.reduce<Record<string, TelemetryPoint[]>>(
+    (acc, sat, idx) => {
+      const points: TelemetryPoint[] = [];
+      for (let i = 20; i >= 0; i -= 1) {
+        const t = now - i * 1000;
+        if (points.length === 0) {
+          points.push({
+            t,
+            temperatureC: 35 + idx * 1.6 + randomDelta(0.8),
+            powerKw: 4.4 + idx * 0.18 + randomDelta(0.2),
+            healthPct: 97 - idx * 0.9 + randomDelta(0.3),
+            seuRate: 0.028 + idx * 0.006 + randomDelta(0.006),
+          });
+          continue;
+        }
 
-      const prev = points[points.length - 1];
-      const syntheticSat: Satellite = {
-        ...sat,
-        loadPct: sat.loadPct + Math.sin(i / 4 + idx * 0.6) * 6,
-        health: "nominal",
-        contact: buildContact(sat.angleDeg + (20 - i) * sat.speedDegPerTick, sat.speedDegPerTick),
-      };
-      points.push(buildTelemetryPoint(t, syntheticSat, prev, SATELLITE_TELEMETRY_PROFILES[sat.id]));
-    }
-    acc[sat.id] = points;
-    return acc;
-  }, {});
+        const prev = points[points.length - 1];
+        const syntheticSat: Satellite = {
+          ...sat,
+          loadPct: sat.loadPct + Math.sin(i / 4 + idx * 0.6) * 6,
+          health: "nominal",
+          contact: buildContact(
+            sat.angleDeg + (20 - i) * sat.speedDegPerTick,
+            sat.speedDegPerTick,
+          ),
+        };
+        points.push(
+          buildTelemetryPoint(
+            t,
+            syntheticSat,
+            prev,
+            SATELLITE_TELEMETRY_PROFILES[sat.id],
+          ),
+        );
+      }
+      acc[sat.id] = points;
+      return acc;
+    },
+    {},
+  );
 };
 
 const asTime = (ms: number) =>
@@ -233,12 +312,14 @@ export function useDemoState() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isWorkbookLoaded, setIsWorkbookLoaded] = useState(false);
   const [agentTask, setAgentTask] = useState<AgentTask | null>(null);
-  const [assistantMessages, setAssistantMessages] = useState<MissionChatMessage[]>([
+  const [assistantMessages, setAssistantMessages] = useState<
+    MissionChatMessage[]
+  >([
     {
       id: "assistant-boot",
       ts: "00:00:00",
       role: "assistant",
-      text: "Mission Atonomou Agent online. Ask me to analyze telemetry, reroute load, or stabilize the selected satellite.",
+      text: "Mission Autonomous Agent online. Ask me to analyze telemetry, reroute load, or stabilize the selected satellite.",
     },
   ]);
   const [isAssistantThinking, setIsAssistantThinking] = useState(false);
@@ -260,7 +341,9 @@ export function useDemoState() {
         const runningIdx = nextSteps.findIndex((s) => s.status === "running");
 
         if (runningIdx === -1) {
-          const firstPending = nextSteps.findIndex((s) => s.status === "pending");
+          const firstPending = nextSteps.findIndex(
+            (s) => s.status === "pending",
+          );
           if (firstPending !== -1) {
             nextSteps[firstPending].status = "running";
             return { ...prev, steps: nextSteps };
@@ -270,8 +353,12 @@ export function useDemoState() {
             setSatellites((sats) =>
               sats.map((item) =>
                 item.id === prev.satelliteId
-                  ? { ...item, health: "nominal", loadPct: clamp(item.loadPct - 30, 10, 95) }
-                  : item
+                  ? {
+                      ...item,
+                      health: "nominal",
+                      loadPct: clamp(item.loadPct - 30, 10, 95),
+                    }
+                  : item,
               ),
             );
             return { ...prev, status: "completed" };
@@ -292,9 +379,8 @@ export function useDemoState() {
       const now = Date.now();
       let nextSatellites: Satellite[] = [];
 
-      setSatellites((prev) =>
-        {
-          nextSatellites = prev.map((sat) => {
+      setSatellites((prev) => {
+        nextSatellites = prev.map((sat) => {
           const nextAngle = normalizeDeg(sat.angleDeg + sat.speedDegPerTick);
           const nextLoad = clamp(sat.loadPct + randomDelta(1.8), 20, 96);
           return {
@@ -303,17 +389,19 @@ export function useDemoState() {
             loadPct: nextLoad,
             contact: buildContact(nextAngle, sat.speedDegPerTick),
           };
-          });
-          return nextSatellites;
-        },
-      );
+        });
+        return nextSatellites;
+      });
 
       setTelemetry((prev) => {
         const next: Record<string, TelemetryPoint[]> = {};
-        const satById = nextSatellites.reduce<Record<string, Satellite>>((acc, sat) => {
-          acc[sat.id] = sat;
-          return acc;
-        }, {});
+        const satById = nextSatellites.reduce<Record<string, Satellite>>(
+          (acc, sat) => {
+            acc[sat.id] = sat;
+            return acc;
+          },
+          {},
+        );
         Object.entries(prev).forEach(([satId, points]) => {
           const last = points[points.length - 1];
           const sat = satById[satId];
@@ -328,7 +416,12 @@ export function useDemoState() {
             health: "nominal",
             contact: { inContact: false, nextContactInSec: 0, stationId: null },
           };
-          const newPoint = buildTelemetryPoint(now, sat ?? fallbackSat, last, profile);
+          const newPoint = buildTelemetryPoint(
+            now,
+            sat ?? fallbackSat,
+            last,
+            profile,
+          );
           next[satId] = [...points.slice(-(MAX_POINTS - 1)), newPoint];
         });
         return next;
@@ -343,11 +436,16 @@ export function useDemoState() {
   }, []);
 
   const activeSatellite = useMemo(
-    () => satellites.find((sat) => sat.id === activeSatelliteId) ?? satellites[0],
+    () =>
+      satellites.find((sat) => sat.id === activeSatelliteId) ?? satellites[0],
     [activeSatelliteId, satellites],
   );
 
-  const addMessage = (type: AiMessage["type"], satelliteId: string, text: string) => {
+  const addMessage = (
+    type: AiMessage["type"],
+    satelliteId: string,
+    text: string,
+  ) => {
     setMessages((prev) => [
       ...prev.slice(-80),
       {
@@ -360,7 +458,10 @@ export function useDemoState() {
     ]);
   };
 
-  const addAssistantMessage = (role: MissionChatMessage["role"], text: string) => {
+  const addAssistantMessage = (
+    role: MissionChatMessage["role"],
+    text: string,
+  ) => {
     setAssistantMessages((prev) => [
       ...prev.slice(-40),
       {
@@ -391,15 +492,18 @@ export function useDemoState() {
     if (!sat) return;
 
     if (action.type === "monitor") {
-      addMessage("observation", action.satelliteId, `Agent assessment for ${sat.name}: ${action.rationale}`);
+      addMessage(
+        "observation",
+        action.satelliteId,
+        `Agent assessment for ${sat.name}: ${action.rationale}`,
+      );
       return;
     }
 
     if (action.type === "reroute") {
-      const healthyTargets =
-        action.targetSatelliteIds?.length
-          ? action.targetSatelliteIds
-          : chooseHealthyTargets(satellites, action.satelliteId);
+      const healthyTargets = action.targetSatelliteIds?.length
+        ? action.targetSatelliteIds
+        : chooseHealthyTargets(satellites, action.satelliteId);
       setReroutes((prev) => [
         ...prev,
         {
@@ -413,20 +517,32 @@ export function useDemoState() {
       setSatellites((prev) =>
         prev.map((item) =>
           item.id === action.satelliteId
-            ? { ...item, health: "warning", loadPct: clamp(item.loadPct - 18, 10, 95) }
+            ? {
+                ...item,
+                health: "warning",
+                loadPct: clamp(item.loadPct - 18, 10, 95),
+              }
             : item.id && healthyTargets.includes(item.id)
               ? { ...item, loadPct: clamp(item.loadPct + 6, 10, 96) }
               : item,
         ),
       );
-      addMessage("action", action.satelliteId, `Agent rerouted non-essential workloads from ${sat.name}.`);
+      addMessage(
+        "action",
+        action.satelliteId,
+        `Agent rerouted non-essential workloads from ${sat.name}.`,
+      );
       return;
     }
 
     setSatellites((prev) =>
       prev.map((item) =>
         item.id === action.satelliteId
-          ? { ...item, health: "nominal", loadPct: clamp(item.loadPct - 26, 10, 95) }
+          ? {
+              ...item,
+              health: "nominal",
+              loadPct: clamp(item.loadPct - 26, 10, 95),
+            }
           : item,
       ),
     );
@@ -449,7 +565,11 @@ export function useDemoState() {
         ],
       };
     });
-    addMessage("action", action.satelliteId, `Agent stabilized ${sat.name}: ${action.rationale}`);
+    addMessage(
+      "action",
+      action.satelliteId,
+      `Agent stabilized ${sat.name}: ${action.rationale}`,
+    );
   };
 
   const runMissionAgent = async (
@@ -493,15 +613,23 @@ export function useDemoState() {
         }),
       });
 
-      const payload = (await response.json()) as MissionAgentApiResponse | { error?: string };
+      const payload = (await response.json()) as
+        | MissionAgentApiResponse
+        | { error?: string };
 
       if (!response.ok) {
-        throw new Error("error" in payload && payload.error ? payload.error : "Mission agent request failed.");
+        throw new Error(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Mission agent request failed.",
+        );
       }
 
       const agentPayload = payload as MissionAgentApiResponse;
       addAssistantMessage("assistant", agentPayload.message);
-      agentPayload.actions?.forEach((action: MissionAgentAction) => applyAgentAction(action));
+      agentPayload.actions?.forEach((action: MissionAgentAction) =>
+        applyAgentAction(action),
+      );
     } catch (error) {
       addAssistantMessage(
         "assistant",
@@ -524,21 +652,25 @@ export function useDemoState() {
     const sat = satellites.find((s) => s.id === satelliteId);
     if (!sat) return;
 
-    addMessage("incident", satelliteId, `${FAULT_LABELS[fault]} detected on ${sat.name}.`);
+    addMessage(
+      "incident",
+      satelliteId,
+      `${FAULT_LABELS[fault]} detected on ${sat.name}.`,
+    );
     addAssistantMessage(
       "assistant",
       `Fault event received for ${sat.name}: ${FAULT_LABELS[fault]}. I am checking live telemetry and selecting a mitigation path.`,
     );
 
     const nextSatellites: Satellite[] = satellites.map((item) =>
-        item.id === satelliteId
-          ? {
-              ...item,
-              health: "critical" as const,
-              loadPct: clamp(item.loadPct + 20, 20, 99),
-            }
-          : item
-      );
+      item.id === satelliteId
+        ? {
+            ...item,
+            health: "critical" as const,
+            loadPct: clamp(item.loadPct + 20, 20, 99),
+          }
+        : item,
+    );
     setSatellites(nextSatellites);
 
     if (isWorkbookLoaded) {
@@ -548,10 +680,26 @@ export function useDemoState() {
         faultType: fault,
         status: "running",
         steps: [
-          { id: "s1", text: "Scanning ingested Operations Manual...", status: "running" },
-          { id: "s2", text: `Cross-referencing anomaly signature with Protocol ${Math.floor(Math.random() * 90) + 10}A...`, status: "pending" },
-          { id: "s3", text: "Rerouting non-essential workloads to resilient peers...", status: "pending" },
-          { id: "s4", text: "Rebooting affected subsystem and stabilizing...", status: "pending" },
+          {
+            id: "s1",
+            text: "Scanning ingested Operations Manual...",
+            status: "running",
+          },
+          {
+            id: "s2",
+            text: `Cross-referencing anomaly signature with Protocol ${Math.floor(Math.random() * 90) + 10}A...`,
+            status: "pending",
+          },
+          {
+            id: "s3",
+            text: "Rerouting non-essential workloads to resilient peers...",
+            status: "pending",
+          },
+          {
+            id: "s4",
+            text: "Rebooting affected subsystem and stabilizing...",
+            status: "pending",
+          },
         ],
       });
     }
